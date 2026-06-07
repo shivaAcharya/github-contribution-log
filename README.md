@@ -1,16 +1,17 @@
-# github-contribution-log
-# Contribution [#]: [Issue Title]
+# Contribution 1: Processing Time Logic is not consistent across Services.
 
-**Contribution Number:** [1 / 2 / 3]  
-**Student:** [Your Name]  
-**Issue:** [GitHub issue link]  
-**Status:** [Phase I / Phase II / Phase III / Phase IV] [In Progress / Complete]
+**Contribution Number:** 1
+**Student:** Shiva Acharya
+**Issue:** https://github.com/pipecat-ai/pipecat/issues/944 
+**Status:** Phase I Complete
 
 ---
 
 ## Why I Chose This Issue
 
-[1-2 paragraphs explaining why this issue interests you, how it matches your skills/learning goals, what you hope to learn]
+I chose this issue because it directly overlaps with my hands-on experience building with ElevenLabs TTS, OpenAI LLM streaming, and Deepgram STT at PlaceOrder AI. I've personally hit this inconsistency when debugging latency in voice pipelines, so the problem feels concrete rather than theoretical — and that makes it motivating to fix properly.
+
+It's also a great entry point into Pipecat's core pipeline architecture. Tracing how metrics are instrumented across service types will give me a solid understanding of the frame processor lifecycle, which I can build on for future contributions.
 
 ---
 
