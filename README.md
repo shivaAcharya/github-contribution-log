@@ -3,7 +3,7 @@
 **Contribution Number:** 1
 **Student:** Shiva Acharya
 **Issue:** https://github.com/pipecat-ai/pipecat/issues/4212
-**Status:** Phase I Complete
+**Status:** Phase II Complete
 
 ---
 
