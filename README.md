@@ -1,9 +1,12 @@
 # Contribution 1: Media upload + additional metadata for traces on Langfuse
 
 **Contribution Number:** 1
+
 **Student:** Shiva Acharya
+
 **Issue:** https://github.com/pipecat-ai/pipecat/issues/4212
-**Status:** Phase III Complete
+
+**Status:** Phase III (In Progress)
 
 ---
 
