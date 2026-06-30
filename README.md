@@ -6,7 +6,7 @@
 
 **Issue:** https://github.com/pipecat-ai/pipecat/issues/4212
 
-**Status:** Phase III (In Progress)
+**Status:** Phase IV Complete
 
 ---
 
@@ -199,33 +199,85 @@ When raw audio bytes are provided, three span attributes are set:
 metadata: dict[str, Any] | None = None
 Each key-value pair in the dict is flattened as a metadata.<key> span attribute. Only primitive values (str, int, float, bool) are written; non-primitives are silently skipped, matching the defensive pattern used throughout the file for settings.*, session.*, and extra.* attributes. import base64 and import json were added at the top of the file. All new parameters default to None, so all existing callers are unaffected.
 
-### Week [Y] Progress
+### Week [4] Progress
 
-[Continue documenting as you work]
+This week I completed the remaining implementation steps for #4212, finishing audio capture for both TTS and STT spans, adding the tracing_metadata constructor param, and wrapping up the changelog entry. The PR is now opened and ready for review.
+
+I ran into a couple of plan deviations along the way — one around where the TTS audio flush actually needs to live (a TTS span can close via three different paths, not just one), and one around when STT audio accumulation should start (gating purely on "span open" misses most of the actual speech). Details and rationale for both are noted under the relevant steps below.
 
 ### Code Changes
 
 - **Files modified:**
  + src/pipecat/utils/tracing/service_attributes.py — added audio_data and metadata params to add_tts_span_attributes() and add_stt_span_attributes(); added import base64 and import json
  + tests/test_tracing_service_attributes.py — new test file with 7 unit tests covering both functions
+ + src/pipecat/utils/tracing/service_decorators.py — added "audio_chunks": [] to _tts_spans and STT state dicts; added TTSAudioRawFrame accumulation branch in traced_push_frame; routed all three TTS span-close paths through end_tts_span for a single flush point; added patch_process_frame(owner) for STT inbound audio accumulation; added flush_stt_audio helper hoisted to decorator(f) scope; threaded metadata=getattr(service, "_tracing_metadata", None) into the TTS and STT span-open calls
+ + src/pipecat/services/tts_service.py — added tracing_metadata: dict[str, Any] | None = None constructor param (with docstring), stored as self._tracing_metadata
+ + src/pipecat/services/stt_service.py — same tracing_metadata constructor param, stored as self._tracing_metadata
+ + changelog/4212.added.md — new changelog entry documenting audio capture and the tracing_metadata param
 
 - **Key commits:**
+
   https://github.com/shivaAcharya/pipecat/commit/c7a5b3fa4cb5f96a3cb8a3b6eb926852f3964e6c
+  https://github.com/shivaAcharya/pipecat/commit/9eb3a86b27668bc4c9a0b0722bf4b7d4ea66adb5
+  https://github.com/pipecat-ai/pipecat/commit/7b389d91fdaad8e1263463e42bd9b2da86ca9cbb
+  
 - **Approach decisions:** [Why you chose certain approaches]
 
 ---
 
 ## Pull Request
 
-**PR Link:** [GitHub PR URL when submitted]
+**PR Link:** 
 
-**PR Description:** [Draft or final PR description - much of the content above can be adapted]
+https://github.com/pipecat-ai/pipecat/pull/4917
+
+**PR Description:**
+### Summary
+TTS and STT tracing spans currently only capture timing and basic
+service attributes — there's no way to attach the actual synthesized/
+transcribed audio or arbitrary custom metadata to a span. This makes
+it hard to debug audio quality issues or correlate spans with
+external systems (e.g. Langfuse media) using application-specific
+context.
+
+### Change
+**service_attributes.py:** add audio_data: bytes | None = None and
+metadata: dict[str, Any] | None = None params to
+add_tts_span_attributes() and add_stt_span_attributes(). When
+audio_data is present, set a *.data_size_bytes attribute,
+base64-encode it into langfuse.media, and set it as output
+(TTS) or input (STT). When metadata is present, flatten each
+primitive value into its own metadata.* attribute.
+
+**service_decorators.py:**
+ - traced_tts: track an audio_chunks list per span; accumulate
+TTSAudioRawFrame.audio in traced_push_frame, then concatenate
+and pass to add_tts_span_attributes() when the span closes.
+ - traced_stt: same pattern via a new patch_process_frame(owner)
+helper (parallel to patch_push_frame) that accumulates
+AudioRawFrame.audio while a span is open.
+ - Thread metadata=getattr(service, "_tracing_metadata", None)
+into both span-open paths so metadata is attached once per span.
+
+**tts_service.py / stt_service.py:** 
+add an optional tracing_metadata: dict[str, Any] | None = None constructor param
+on TTSService and STTService, so metadata can be configured
+once per service instance instead of per call.
+
+**changelog/4212.added.md:** towncrier entry for the new capability.
+
+### Result
+TTS/STT spans now optionally include the captured audio (as
+base64-encoded langfuse.media, plus a size attribute) and any
+caller-supplied metadata, with no behavior change when the new
+params are omitted.
+Closes #4212
 
 **Maintainer Feedback:**
 - [Date]: [Summary of feedback received]
 - [Date]: [How you addressed it]
 
-**Status:** [Awaiting review / Iterating / Approved / Merged]
+**Status:** Awaiting review
 
 ---
 
