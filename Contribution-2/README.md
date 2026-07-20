@@ -6,7 +6,7 @@
 
 **Issue:** https://github.com/pipecat-ai/pipecat/issues/4795 
 
-**Status:** Phase II Complete
+**Status:** Phase III In Progress
 
 ---
 
@@ -91,20 +91,49 @@ Since there's no reply yet, I'm treating "replace, bool return, both sync and as
 
 Using UMPIRE framework (adapted):
 
-**Understand:** [Restate the problem]
+**Understand:** 
 
-**Match:** [What similar patterns/solutions exist in the codebase?]
+`LLMContextSummarizer._should_summarize()`, part of `pipecat.processors.aggregators.llm_context_summarizer`, fires on every `LLMFullResponseStartFrame` and always runs `estimate_context_tokens()` against the thresholds in `LLMAutoContextSummarizationConfig` (`max_context_tokens`, default 8000; `max_unsummarized_messages`, default 20). There's no supported way to change this decision short of subclassing `LLMContextSummarizer` and overriding the private `_should_summarize()`. The ask is a `should_summarize_callback` parameter that, when supplied, replaces this threshold logic entirely and lets the token-estimation work be skipped.
 
-**Plan:** [Step-by-step implementation plan]
-1. [Modify file X to do Y]
-2. [Add function Z]
-3. [Update tests]
+**Match:** 
 
-**Implement:** [Link to your branch/commits as you work]
+A few existing patterns in the codebase are directly relevant:
 
-**Review:** [Self-review checklist - does it follow the project's contribution guidelines?]
++ Config-level optional override, verified in the docs: `LLMContextSummaryConfig.llm` is exactly this shape already — an `Optional[LLMService]` field, defaulting to `None`, where "if set, use this instead of the pipeline default; if None, fall back to default behavior." `should_summarize_callback` can follow the identical pattern on `LLMAutoContextSummarizationConfig: Optional[Callable]`, default `None`, same fallback contract.
++ Event-handler / pyee `EventEmitter` pattern: the existing `on_summary_applied` hook is registered via `@summarizer.event_handler("on_summary_applied")` (and mirrored on the aggregator via `@assistant_aggregator.event_handler(...)`). This confirms the project already has an established, non-subclassing way to expose customization points — worth raising with the maintainer as a possible alternative shape (an `on_should_summarize` event with a settable return, vs. a plain constructor callback), though the issue as written asks specifically for a constructor parameter.
++ On-demand override precedent: `LLMSummarizeContextFrame(config=LLMContextSummaryConfig(...))` already lets a caller override generation settings per-request without touching the constructor. Less directly applicable to a "should I trigger" decision (that check has already happened by the time a frame reaches the pipeline), but it's evidence the maintainers are comfortable with per-call override objects generally.
++ Backward-compat renaming precedent: the recent `enable_context_summarization → enable_auto_context_summarization` rename kept the old name working with a DeprecationWarning rather than a hard break. If the maintainer wants the callback somewhere other than where I've assumed (e.g., directly on `LLMAssistantAggregatorParams` instead of nested in `LLMAutoContextSummarizationConfig`), this precedent suggests they'd expect a soft-deprecation path rather than a breaking move — good to keep in mind when proposing the parameter's home.
 
-**Evaluate:** [How will you verify it works?]
+**Plan:**
+1. Add `should_summarize_callback: Optional[Callable] = None` to `LLMAutoContextSummarizationConfig` in `src/pipecat/utils/context/llm_context_summarization.py` (path to confirm locally — inferred from the import shown in docs, not yet grepped).
+2. In `LLMContextSummarizer._should_summarize()` (`src/pipecat/processors/aggregators/llm_context_summarizer.py`), check for the callback first; if present, call it (supporting both sync and async — via a small `maybe_await` helper, adding one if the codebase doesn't already have an equivalent utility) and return its result directly, without calling `estimate_context_tokens()` — this is what satisfies the stated perf goal.
+3. Thread the parameter through so it's visible wherever `LLMAutoContextSummarizationConfig` is already accepted — no new plumbing needed here since the config object already flows from `LLMAssistantAggregatorParams` into `LLMContextSummarizer` today.
+4. Add/extend unit tests (exact test file to confirm — likely alongside other summarizer tests, following the project's existing test-layout convention).
+5. Update the two docs pages I fetched (`/pipecat/fundamentals/context-summarization` and the API reference page) to document the new field — flagging that docs may live in a separate repo from `pipecat-ai/pipecat` itself, which I haven't confirmed.
+6. Add a changelog fragment per the project's towncrier convention.
+
+**Implement:** 
+
+https://github.com/shivaAcharya/pipecat/tree/feature/4795/should_summarize_callback-param-in-LLMContextSummarizer
+
+**Review:**
+
+Self-review checklist before opening a PR (per `CONTRIBUTING.md` conventions used elsewhere in the project):
+
+- [ ] New parameter has a Google-style docstring with type, default, and behavior description (matching the style of existing `ParamField` entries like llm on `LLMContextSummaryConfig`)
+- [ ] Backward compatibility verified: omitting `should_summarize_callback` produces byte-identical behavior to today (existing tests for default threshold behavior still pass unmodified)
+- [ ] No new required constructor args — everything is `Optional` with a safe default, consistent with how every other field on `LLMAutoContextSummarizationConfig` is optional
+- [ ] Both sync and async callables tested explicitly, not just one
+- [ ] Changelog fragment added following the existing `changelog/NNNN.added` format seen in the CHANGELOG history
+- [ ] No unrelated formatting/lint changes bundled into the diff
+- [ ] PR description explicitly calls out the replace-vs-gate decision and any other assumption made, per this project's pattern of surfacing non-obvious design calls to reviewers (as I did on PR #4212)
+
+**Evaluate:**
+
+ - Run the full existing summarizer test suite to confirm no regressions in default (no-callback) behavior
+ - Add a targeted test asserting `estimate_context_tokens` is never called when a callback is supplied (this is the concrete, testable form of the issue's performance claim)
+ - Manually exercise both an always-`True` and always-`False` callback against a live (or mocked) `LLMContextAggregatorPair` and confirm summarization fires / never fires accordingly
+ - Manually test an async callback to confirm no event-loop issues (e.g., accidentally calling it without awaiting)
 
 ---
 
@@ -112,26 +141,29 @@ Using UMPIRE framework (adapted):
 
 ### Unit Tests
 
-- [ ] Test case 1: [Description]
-- [ ] Test case 2: [Description]
-- [ ] Test case 3: [Description]
+- [ ] Callback provided, returns `True` → summarization triggers on the next `LLMFullResponseStartFrame`, regardless of token/message counts
+- [ ] Callback provided, returns `False` → summarization does not trigger even when both built-in thresholds are far exceeded
+- [ ] Callback provided (sync) vs. callback provided (async) → both are correctly invoked and awaited where necessary; assert no `RuntimeWarning` about un-awaited coroutines
+- [ ] No callback provided → behavior is identical to current default threshold logic (regression/parity test against existing behavior)
+- [ ] Callback provided → `estimate_context_tokens()` is asserted not called (via `unittest.mock.patch`), directly verifying the stated performance improvement
+- [ ] Callback raises an exception → confirm this fails loudly/predictably rather than silently falling back to threshold logic (behavior here should be explicitly decided, not accidental)
 
 ### Integration Tests
 
-- [ ] Integration scenario 1
-- [ ] Integration scenario 2
+- [ ] Full pipeline run with `LLMContextAggregatorPair`, `enable_auto_context_summarization=True`, and a callback that gates on a custom condition (e.g., a counter reaching a specific turn number) — confirm the resulting context after summarization matches expectations (system message preserved, recent messages preserved, summary inserted)
+- [ ] Full pipeline run confirming `on_summary_applied` still fires correctly when the callback (rather than thresholds) is what triggered the summarization — i.e., the event-emission path downstream of the decision is unaffected by which mechanism made the decision
 
 ### Manual Testing
 
-[What you tested manually and results]
+Once maintainer input unblocks implementation: run a short local voice-agent example (adapting the existing context-summarization example script) with a callback that logs every time it's consulted, and manually verify in the logs that (a) it's called every turn, (b) `estimate_context_tokens` is not called alongside it, and (c) summarization behavior matches the callback's return values turn-by-turn. Results to be recorded here once run.
 
 ---
 
 ## Implementation Notes
 
-### Week [X] Progress
+### Week 7 Progress
 
-[What you built this week, challenges faced, decisions made]
+Not started — blocked on maintainer confirmation of the four open design questions (replace-vs-gate, return contract, sync/async, default-parity), since points 1-2 above depend on the answers. Branch: feature/4795/should_summarize_callback-param-in-LLMContextSummarizer. Will link individual commits here as they land.
 
 ### Week [Y] Progress
 
