@@ -165,9 +165,9 @@ Once maintainer input unblocks implementation: run a short local voice-agent exa
 
 Not started — blocked on maintainer confirmation of the four open design questions (replace-vs-gate, return contract, sync/async, default-parity), since points 1-2 above depend on the answers. Branch: feature/4795/should_summarize_callback-param-in-LLMContextSummarizer. Will link individual commits here as they land.
 
-### Week [Y] Progress
+### Week 8 Progress
 
-[Continue documenting as you work]
+Still blocked — no maintainer response yet on the four open design questions (replace-vs-gate, return contract, sync/async, default-parity). To move things along, I joined the project Discord server and reached out to the maintainers and the original issue creator for a response on the design direction. No implementation work done this week, since points 1-2 remain gated on those answers and starting before they're settled risks a rework. Branch unchanged (`feature/4795/should_summarize_callback-param-in-LLMContextSummarizer`); no new commits to link. Will resume and start landing commits here as soon as the design direction is confirmed.
 
 ### Code Changes
 
